@@ -211,3 +211,5 @@ __pycache__/
 .env
 data/
 .cache/
+# Streamlit
+.streamlit/cache
