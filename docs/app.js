@@ -139,19 +139,36 @@ function buildVaRTable(result) {
   container.innerHTML = "";
 
   const varRes = result.var_backtest || result.var_results || result.var || null;
-  if (!varRes) {
+  if (!varRes || typeof varRes !== "object") {
     container.textContent = "VaR results not found in summary.json (expected key: var_backtest).";
     return;
   }
 
+  // Build rows from object keys (e.g., var_95, var_99) or numeric levels
   const rows = [];
+
   if (Array.isArray(varRes)) {
     rows.push(...varRes);
   } else {
     for (const key of Object.keys(varRes)) {
-      rows.push({ level: key, ...varRes[key] });
+      const payload = varRes[key];
+
+      // payload could be a number or an object
+      if (payload && typeof payload === "object") {
+        rows.push({ level: key, ...payload });
+      } else {
+        rows.push({ level: key, exceptions: payload });
+      }
     }
   }
+
+  // Helper to pull value from multiple possible key names
+  const pick = (obj, keys) => {
+    for (const k of keys) {
+      if (obj && obj[k] !== undefined && obj[k] !== null) return obj[k];
+    }
+    return null;
+  };
 
   const table = document.createElement("table");
   table.innerHTML = `
@@ -172,69 +189,35 @@ function buildVaRTable(result) {
   const tbody = table.querySelector("tbody");
 
   for (const r of rows) {
-    const level = r.level ?? r.confidence_level ?? "—";
-    const exceptions = r.exceptions ?? r.exception_count ?? "—";
-    const expected = r.expected_exceptions ?? r.expected ?? "—";
-    const obsRate = r.observed_rate ?? r.rate ?? "—";
-    const lr = r.kupiec_lr_stat ?? r.kupiec_lr ?? r.lr_stat ?? r.lr ?? null;
-    const p = r.p_value ?? r.kupiec_pvalue ?? r.pvalue ?? null;
-    const resultText =
-      r.result ??
-      (r.pass === true ? "PASS" : r.pass === false ? "REJECT" : "—");
+    const level = r.level ?? r.confidence_level ?? r.level_name ?? "—";
+
+    const exceptions = pick(r, ["exceptions", "exception_count", "exceptions_count"]);
+    const expected = pick(r, ["expected_exceptions", "expected", "expected_count"]);
+    const observedRate = pick(r, ["observed_rate", "observed", "rate"]);
+
+    const kupiecLR = pick(r, ["kupiec_lr_stat", "kupiec_lr", "lr_stat", "lr"]);
+    const pValue = pick(r, ["p_value", "pvalue", "kupiec_pvalue"]);
+
+    // Result can be string or boolean
+    let resultText = pick(r, ["result", "status"]);
+    const passFlag = pick(r, ["pass", "is_pass"]);
+    if (!resultText) {
+      if (passFlag === true) resultText = "PASS";
+      else if (passFlag === false) resultText = "REJECT";
+    }
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${level}</td>
-      <td>${exceptions}</td>
-      <td>${expected}</td>
-      <td>${typeof obsRate === "number" ? obsRate.toFixed(4) : obsRate}</td>
-      <td>${formatNumber(lr, 2)}</td>
-      <td>${formatNumber(p, 4)}</td>
-      <td>${resultText}</td>
+      <td>${exceptions ?? "—"}</td>
+      <td>${expected ?? "—"}</td>
+      <td>${typeof observedRate === "number" ? observedRate.toFixed(4) : (observedRate ?? "—")}</td>
+      <td>${kupiecLR !== null ? formatNumber(kupiecLR, 2) : "—"}</td>
+      <td>${pValue !== null ? formatNumber(pValue, 4) : "—"}</td>
+      <td>${resultText ?? "—"}</td>
     `;
     tbody.appendChild(tr);
   }
 
   container.appendChild(table);
 }
-
-function renderSelected(ticker) {
-  hideBox();
-
-  const byTicker = normaliseTopLevel(rawData);
-  const result = byTicker[ticker];
-
-  if (!result) {
-    showError(
-      `No results found for ${ticker}. Check docs/summary.json top-level keys.`
-    );
-    return;
-  }
-
-  buildCards(result);
-  renderChart(result);
-  buildVaRTable(result);
-
-  // Helpful status for debugging (will not show if you comment it out)
-  const volNums = toNumberArray(result.volatility_series || result.volatility);
-  showInfo(`Loaded ${ticker}. Volatility points: ${volNums.length}.`);
-}
-
-async function init() {
-  try {
-    const resp = await fetch("summary.json", { cache: "no-store" });
-    if (!resp.ok) throw new Error(`Failed to load data: ${resp.status}`);
-    rawData = await resp.json();
-  } catch (err) {
-    showError(
-      `Error loading data: ${err.message}. Make sure docs/summary.json exists and is served by GitHub Pages.`
-    );
-    return;
-  }
-
-  const select = $("indexSelect");
-  select.addEventListener("change", () => renderSelected(select.value));
-  renderSelected(select.value);
-}
-
-document.addEventListener("DOMContentLoaded", init);
