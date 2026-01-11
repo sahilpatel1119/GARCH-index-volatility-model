@@ -1,199 +1,162 @@
-// Global data storage
-let garchData = null;
+let rawData = null;
+let chart = null;
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', async () => {
-    await loadData();
-    setupEventListeners();
-});
-
-// Load JSON data
-async function loadData() {
-    try {
-        const response = await fetch('../reports/summary.json');
-        
-        if (!response.ok) {
-            throw new Error(`Failed to load data: ${response.status} ${response.statusText}`);
-        }
-        
-        garchData = await response.json();
-        
-        // Hide loading, show content
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('content').style.display = 'block';
-        
-        // Render initial selection
-        renderDashboard('^FTSE');
-        
-    } catch (error) {
-        showError(`Error loading data: ${error.message}. Make sure you're running this on a web server or GitHub Pages.`);
-    }
-}
-
-// Setup event listeners
-function setupEventListeners() {
-    const selector = document.getElementById('indexSelector');
-    selector.addEventListener('change', (e) => {
-        renderDashboard(e.target.value);
-    });
-}
-
-// Show error message
 function showError(message) {
-    document.getElementById('loading').style.display = 'none';
-    const errorDiv = document.getElementById('errorMessage');
-    errorDiv.textContent = message;
-    errorDiv.style.display = 'block';
+  const el = document.getElementById("errorBox");
+  el.style.display = "block";
+  el.textContent = message;
 }
 
-// Main render function
-function renderDashboard(ticker) {
-    if (!garchData || !garchData[ticker]) {
-        showError(`No data found for ${ticker}`);
-        return;
+function hideError() {
+  const el = document.getElementById("errorBox");
+  el.style.display = "none";
+  el.textContent = "";
+}
+
+function normaliseData(data) {
+  // Supports either { "^FTSE": {...}, "^GSPC": {...} } OR [ {ticker:"^FTSE",...}, ... ]
+  if (Array.isArray(data)) {
+    return Object.fromEntries(data.map((d) => [d.ticker, d]));
+  }
+  return data;
+}
+
+function formatNumber(x, dp = 4) {
+  if (x === null || x === undefined || Number.isNaN(Number(x))) return "—";
+  return Number(x).toFixed(dp);
+}
+
+function buildCards(result) {
+  const cards = document.getElementById("cards");
+  cards.innerHTML = "";
+
+  const selected = result.selected_model || result.selected_distribution || "—";
+  const aic = result.aic_values || result.aic || {};
+  const aicNormal = aic.normal ?? aic.gaussian ?? aic.Normal ?? null;
+  const aicT = aic.t ?? aic.student_t ?? aic["Student-t"] ?? null;
+
+  const vol = result.volatility_series || result.volatility || [];
+  const volNums = vol.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+  const meanVol = volNums.length ? volNums.reduce((a, b) => a + b, 0) / volNums.length : null;
+  const maxVol = volNums.length ? Math.max(...volNums) : null;
+  const minVol = volNums.length ? Math.min(...volNums) : null;
+
+  const items = [
+    ["Selected distribution", selected],
+    ["AIC (Normal)", formatNumber(aicNormal, 2)],
+    ["AIC (Student-t)", formatNumber(aicT, 2)],
+    ["Mean volatility", formatNumber(meanVol, 4)],
+    ["Max volatility", formatNumber(maxVol, 4)],
+    ["Min volatility", formatNumber(minVol, 4)],
+  ];
+
+  for (const [k, v] of items) {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
+    cards.appendChild(div);
+  }
+}
+
+function buildVaRTable(result) {
+  const container = document.getElementById("varTable");
+  container.innerHTML = "";
+
+  const varRes = result.var_backtest || result.var_results || result.var || null;
+  if (!varRes) {
+    container.textContent = "VaR results not available in summary.json";
+    return;
+  }
+
+  // Expecting something like:
+  // { "0.95": {...}, "0.99": {...} } OR { "95": {...}, "99": {...} } OR list
+  const rows = [];
+  if (Array.isArray(varRes)) {
+    for (const r of varRes) rows.push(r);
+  } else {
+    for (const key of Object.keys(varRes)) {
+      rows.push({ level: key, ...varRes[key] });
     }
-    
-    const data = garchData[ticker];
-    
-    // Check for errors in data
-    if (data.error) {
-        showError(`Analysis failed: ${data.error}`);
-        return;
+  }
+
+  const table = document.createElement("table");
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Level</th>
+        <th>Exceptions</th>
+        <th>Expected rate</th>
+        <th>Kupiec LR</th>
+        <th>p-value</th>
+        <th>Result</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+
+  const tbody = table.querySelector("tbody");
+  for (const r of rows) {
+    const level = r.level ?? r.confidence ?? "—";
+    const exceptions = r.exceptions ?? r.exception_count ?? "—";
+    const expected = r.expected_rate ?? r.alpha ?? r.expected ?? "—";
+    const lr = r.kupiec_lr ?? r.lr_stat ?? r.lr ?? null;
+    const p = r.kupiec_pvalue ?? r.p_value ?? r.pvalue ?? null;
+    const pass = r.pass ?? r.result ?? r.status ?? null;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${level}</td>
+      <td>${exceptions}</td>
+      <td>${expected}</td>
+      <td>${formatNumber(lr, 4)}</td>
+      <td>${formatNumber(p, 4)}</td>
+      <td>${pass === true ? "PASS" : pass === false ? "REJECT" : (pass ?? "—")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  container.appendChild(table);
+}
+
+function renderChart(result) {
+  const vol = result.volatility_series || result.volatility || [];
+  const values = vol.map((v) => Number(v));
+  const labels = values.map((_, i) => i + 1); // simple index labels (safe and consistent)
+
+  const ctx = document.getElementById("volChart").getContext("2d");
+
+  if (chart) {
+    chart.destroy();
+  }
+
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Conditional volatility",
+          data: values,
+          pointRadius: 0,
+          borderWidth: 1,
+          tension: 0.15
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true }
+      },
+      scales: {
+        x: { title: { display: true, text: "Observation" } },
+        y: { title: { display: true, text: "Volatility" } }
+      }
     }
-    
-    // Render all components
-    renderModelInfo(data);
-    renderVolatilitySummary(data);
-    renderVolatilityChart(data, ticker);
-    renderDiagnostics(data);
-    renderVarTable(data);
+  });
 }
 
-// Render model information
-function renderModelInfo(data) {
-    const modelType = data.selected_model.toUpperCase();
-    document.getElementById('selectedModel').textContent = `GARCH(1,1) - ${modelType}`;
-    document.getElementById('aicNormal').textContent = data.aic_values.normal.toFixed(2);
-    document.getElementById('aicStudentT').textContent = data.aic_values.t.toFixed(2);
-}
-
-// Render volatility summary
-function renderVolatilitySummary(data) {
-    const summary = data.summary;
-    document.getElementById('totalObs').textContent = summary.total_observations.toLocaleString();
-    document.getElementById('meanVol').textContent = `${summary.mean_volatility.toFixed(4)}%`;
-    document.getElementById('maxVol').textContent = `${summary.max_volatility.toFixed(4)}%`;
-    document.getElementById('minVol').textContent = `${summary.min_volatility.toFixed(4)}%`;
-}
-
-// Render volatility chart using Plotly
-function renderVolatilityChart(data, ticker) {
-    const tickerName = ticker === '^FTSE' ? 'FTSE 100' : 'S&P 500';
-    
-    const trace = {
-        x: data.volatility_index,
-        y: data.volatility,
-        type: 'scatter',
-        mode: 'lines',
-        name: 'Volatility',
-        line: {
-            color: '#58a6ff',
-            width: 1.5
-        }
-    };
-    
-    const layout = {
-        title: {
-            text: `${tickerName} - Conditional Volatility (GARCH 1,1)`,
-            font: {
-                color: '#c9d1d9',
-                size: 16
-            }
-        },
-        xaxis: {
-            title: 'Date',
-            gridcolor: '#30363d',
-            color: '#8b949e'
-        },
-        yaxis: {
-            title: 'Volatility (%)',
-            gridcolor: '#30363d',
-            color: '#8b949e'
-        },
-        plot_bgcolor: '#161b22',
-        paper_bgcolor: '#21262d',
-        font: {
-            color: '#c9d1d9'
-        },
-        hovermode: 'x unified',
-        margin: {
-            l: 60,
-            r: 30,
-            t: 50,
-            b: 60
-        }
-    };
-    
-    const config = {
-        responsive: true,
-        displayModeBar: true,
-        displaylogo: false,
-        modeBarButtonsToRemove: ['lasso2d', 'select2d']
-    };
-    
-    Plotly.newPlot('volatilityChart', [trace], layout, config);
-}
-
-// Render diagnostics
-function renderDiagnostics(data) {
-    const diag = data.diagnostics;
-    
-    // Ljung-Box
-    document.getElementById('lbStat').textContent = diag.ljung_box.test_statistic.toFixed(4);
-    document.getElementById('lbPvalue').textContent = diag.ljung_box.p_value.toFixed(4);
-    document.getElementById('lbLags').textContent = diag.ljung_box.lags;
-    
-    // Ljung-Box Squared
-    document.getElementById('lbsqStat').textContent = diag.ljung_box_squared.test_statistic.toFixed(4);
-    document.getElementById('lbsqPvalue').textContent = diag.ljung_box_squared.p_value.toFixed(4);
-    document.getElementById('lbsqLags').textContent = diag.ljung_box_squared.lags;
-    
-    // ARCH LM
-    document.getElementById('archStat').textContent = diag.arch_lm.lm_statistic.toFixed(4);
-    document.getElementById('archPvalue').textContent = diag.arch_lm.lm_p_value.toFixed(4);
-    document.getElementById('archLags').textContent = diag.arch_lm.lags;
-}
-
-// Render VaR table
-function renderVarTable(data) {
-    const varBacktest = data.var_backtest;
-    const tbody = document.getElementById('varTableBody');
-    tbody.innerHTML = '';
-    
-    // Sort by confidence level
-    const varLevels = Object.keys(varBacktest).sort();
-    
-    varLevels.forEach(level => {
-        const varData = varBacktest[level];
-        const kupiec = varData.kupiec_test;
-        const cl = (varData.confidence_level * 100).toFixed(0);
-        
-        const row = document.createElement('tr');
-        
-        const resultClass = kupiec.reject_null ? 'result-reject' : 'result-pass';
-        const resultText = kupiec.reject_null ? '❌ Reject' : '✅ Pass';
-        
-        row.innerHTML = `
-            <td>${cl}%</td>
-            <td>${varData.total_observations.toLocaleString()}</td>
-            <td>${varData.exceptions}</td>
-            <td>${kupiec.expected_exceptions.toFixed(1)}</td>
-            <td>${kupiec.observed_rate.toFixed(4)}</td>
-            <td>${kupiec.lr_statistic.toFixed(2)}</td>
-            <td>${kupiec.p_value.toFixed(4)}</td>
-            <td class="${resultClass}">${resultText}</td>
-        `;
-        
-        tbody.appendChild(row);
-    });
-}
+function renderSelected(ticker) {
+  hideError();
+  const byTicker = normaliseDat

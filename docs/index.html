@@ -1,140 +1,39 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GARCH Volatility Dashboard</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GARCH Volatility Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script defer src="app.js"></script>
 </head>
+
 <body>
-    <div class="container">
-        <header>
-            <h1>📈 GARCH Volatility Dashboard</h1>
-            <p class="subtitle">Index Volatility Analysis & VaR Backtesting</p>
-        </header>
+  <div class="container">
+    <h1>GARCH Volatility Dashboard</h1>
 
-        <div class="controls">
-            <label for="indexSelector">Select Index:</label>
-            <select id="indexSelector">
-                <option value="^FTSE">FTSE 100</option>
-                <option value="^GSPC">S&P 500</option>
-            </select>
-        </div>
-
-        <div id="errorMessage" class="error-message" style="display: none;"></div>
-        <div id="loading" class="loading">Loading data...</div>
-
-        <div id="content" style="display: none;">
-            <!-- Model Information -->
-            <section class="section">
-                <h2>Model Information</h2>
-                <div class="cards">
-                    <div class="card">
-                        <div class="card-label">Selected Model</div>
-                        <div class="card-value" id="selectedModel">-</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-label">AIC (Normal)</div>
-                        <div class="card-value" id="aicNormal">-</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-label">AIC (Student-t)</div>
-                        <div class="card-value" id="aicStudentT">-</div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Volatility Summary -->
-            <section class="section">
-                <h2>Volatility Summary</h2>
-                <div class="cards">
-                    <div class="card">
-                        <div class="card-label">Observations</div>
-                        <div class="card-value" id="totalObs">-</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-label">Mean Volatility</div>
-                        <div class="card-value" id="meanVol">-</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-label">Max Volatility</div>
-                        <div class="card-value" id="maxVol">-</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-label">Min Volatility</div>
-                        <div class="card-value" id="minVol">-</div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Volatility Chart -->
-            <section class="section">
-                <h2>Conditional Volatility Over Time</h2>
-                <div id="volatilityChart"></div>
-            </section>
-
-            <!-- Model Diagnostics -->
-            <section class="section">
-                <h2>Model Diagnostics</h2>
-                <div class="diagnostics-grid">
-                    <div class="diagnostic-card">
-                        <h3>Ljung-Box Test</h3>
-                        <p><strong>Test Statistic:</strong> <span id="lbStat">-</span></p>
-                        <p><strong>p-value:</strong> <span id="lbPvalue">-</span></p>
-                        <p><strong>Lags:</strong> <span id="lbLags">-</span></p>
-                    </div>
-                    <div class="diagnostic-card">
-                        <h3>Ljung-Box Squared</h3>
-                        <p><strong>Test Statistic:</strong> <span id="lbsqStat">-</span></p>
-                        <p><strong>p-value:</strong> <span id="lbsqPvalue">-</span></p>
-                        <p><strong>Lags:</strong> <span id="lbsqLags">-</span></p>
-                    </div>
-                    <div class="diagnostic-card">
-                        <h3>ARCH LM Test</h3>
-                        <p><strong>LM Statistic:</strong> <span id="archStat">-</span></p>
-                        <p><strong>p-value:</strong> <span id="archPvalue">-</span></p>
-                        <p><strong>Lags:</strong> <span id="archLags">-</span></p>
-                    </div>
-                </div>
-                <div class="info-box">
-                    💡 p-values > 0.05 suggest the model adequately captures volatility dynamics
-                </div>
-            </section>
-
-            <!-- VaR Backtest -->
-            <section class="section">
-                <h2>Value-at-Risk (VaR) Backtest Results</h2>
-                <div class="table-container">
-                    <table id="varTable">
-                        <thead>
-                            <tr>
-                                <th>Confidence Level</th>
-                                <th>Observations</th>
-                                <th>Exceptions</th>
-                                <th>Expected</th>
-                                <th>Observed Rate</th>
-                                <th>Kupiec LR</th>
-                                <th>p-value</th>
-                                <th>Result</th>
-                            </tr>
-                        </thead>
-                        <tbody id="varTableBody">
-                        </tbody>
-                    </table>
-                </div>
-                <div class="info-box">
-                    💡 The Kupiec test evaluates if VaR exception rate matches expectations. 
-                    "Pass" indicates adequate model; "Reject" suggests underestimation of risk.
-                </div>
-            </section>
-        </div>
-
-        <footer>
-            <p>GARCH Volatility Analysis | Educational Portfolio Project | Data: 2010-2026</p>
-        </footer>
+    <div class="controls">
+      <label for="indexSelect">Index</label>
+      <select id="indexSelect">
+        <option value="^FTSE">FTSE 100 (UK)</option>
+        <option value="^GSPC">S&P 500 (USA)</option>
+      </select>
     </div>
 
-    <script src="app.js"></script>
+    <div class="cards" id="cards"></div>
+
+    <div class="panel">
+      <h2>Conditional Volatility</h2>
+      <canvas id="volChart"></canvas>
+    </div>
+
+    <div class="panel">
+      <h2>VaR Backtest</h2>
+      <div id="varTable"></div>
+    </div>
+
+    <div class="panel" id="errorBox" style="display:none;"></div>
+  </div>
 </body>
 </html>
