@@ -138,37 +138,30 @@ function buildVaRTable(result) {
   const container = $("varTable");
   container.innerHTML = "";
 
-  const varRes = result.var_backtest || result.var_results || result.var || null;
+  const varRes = result.var_backtest || null;
   if (!varRes || typeof varRes !== "object") {
     container.textContent = "VaR results not found in summary.json (expected key: var_backtest).";
     return;
   }
 
-  // Build rows from object keys (e.g., var_95, var_99) or numeric levels
-  const rows = [];
+  const rows = Object.keys(varRes).map((key) => {
+    const entry = varRes[key] || {};
+    const kt = entry.kupiec_test || {};
 
-  if (Array.isArray(varRes)) {
-    rows.push(...varRes);
-  } else {
-    for (const key of Object.keys(varRes)) {
-      const payload = varRes[key];
+    // Convert level labels to something readable
+    const levelLabel =
+      entry.confidence_level ? `${Math.round(entry.confidence_level * 100)}%` : key;
 
-      // payload could be a number or an object
-      if (payload && typeof payload === "object") {
-        rows.push({ level: key, ...payload });
-      } else {
-        rows.push({ level: key, exceptions: payload });
-      }
-    }
-  }
-
-  // Helper to pull value from multiple possible key names
-  const pick = (obj, keys) => {
-    for (const k of keys) {
-      if (obj && obj[k] !== undefined && obj[k] !== null) return obj[k];
-    }
-    return null;
-  };
+    return {
+      level: levelLabel,
+      exceptions: entry.exceptions ?? "—",
+      expected: kt.expected_exceptions ?? "—",
+      observedRate: kt.observed_rate ?? "—",
+      kupiecLR: kt.lr_statistic ?? "—",
+      pValue: kt.p_value ?? "—",
+      result: kt.reject_null === true ? "REJECT" : kt.reject_null === false ? "PASS" : "—",
+    };
+  });
 
   const table = document.createElement("table");
   table.innerHTML = `
@@ -189,32 +182,15 @@ function buildVaRTable(result) {
   const tbody = table.querySelector("tbody");
 
   for (const r of rows) {
-    const level = r.level ?? r.confidence_level ?? r.level_name ?? "—";
-
-    const exceptions = pick(r, ["exceptions", "exception_count", "exceptions_count"]);
-    const expected = pick(r, ["expected_exceptions", "expected", "expected_count"]);
-    const observedRate = pick(r, ["observed_rate", "observed", "rate"]);
-
-    const kupiecLR = pick(r, ["kupiec_lr_stat", "kupiec_lr", "lr_stat", "lr"]);
-    const pValue = pick(r, ["p_value", "pvalue", "kupiec_pvalue"]);
-
-    // Result can be string or boolean
-    let resultText = pick(r, ["result", "status"]);
-    const passFlag = pick(r, ["pass", "is_pass"]);
-    if (!resultText) {
-      if (passFlag === true) resultText = "PASS";
-      else if (passFlag === false) resultText = "REJECT";
-    }
-
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${level}</td>
-      <td>${exceptions ?? "—"}</td>
-      <td>${expected ?? "—"}</td>
-      <td>${typeof observedRate === "number" ? observedRate.toFixed(4) : (observedRate ?? "—")}</td>
-      <td>${kupiecLR !== null ? formatNumber(kupiecLR, 2) : "—"}</td>
-      <td>${pValue !== null ? formatNumber(pValue, 4) : "—"}</td>
-      <td>${resultText ?? "—"}</td>
+      <td>${r.level}</td>
+      <td>${r.exceptions}</td>
+      <td>${typeof r.expected === "number" ? r.expected.toFixed(1) : r.expected}</td>
+      <td>${typeof r.observedRate === "number" ? r.observedRate.toFixed(4) : r.observedRate}</td>
+      <td>${typeof r.kupiecLR === "number" ? r.kupiecLR.toFixed(2) : r.kupiecLR}</td>
+      <td>${typeof r.pValue === "number" ? r.pValue.toExponential(2) : r.pValue}</td>
+      <td>${r.result}</td>
     `;
     tbody.appendChild(tr);
   }
