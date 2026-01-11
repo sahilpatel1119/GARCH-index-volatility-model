@@ -1,0 +1,3 @@
+"""
+GARCH volatility modeling package.
+"""
