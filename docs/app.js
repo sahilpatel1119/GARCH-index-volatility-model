@@ -1,35 +1,51 @@
+/* GARCH Pages Dashboard (CSP-safe, defensive)
+   - Loads docs/summary.json
+   - Renders cards, volatility chart, VaR table (nested kupiec_test)
+*/
+
 let rawData = null;
 let chart = null;
 
-function $(id) {
+function getEl(id) {
   return document.getElementById(id);
 }
 
-function showError(message) {
-  const el = $("errorBox");
+function ensureErrorBox() {
+  let el = getEl("errorBox");
+  if (!el) {
+    // Create a fallback error box so the app never crashes due to missing HTML
+    el = document.createElement("div");
+    el.id = "errorBox";
+    el.style.display = "none";
+    el.style.marginTop = "12px";
+    el.style.padding = "10px";
+    el.style.border = "1px solid #243044";
+    el.style.borderRadius = "10px";
+    el.style.background = "#0f1622";
+    el.style.color = "#ffb4b4";
+    const container = document.body;
+    container.appendChild(el);
+  }
+  return el;
+}
+
+function showMessage(message, kind = "info") {
+  const el = ensureErrorBox();
   el.style.display = "block";
+  el.style.color = kind === "error" ? "#ffb4b4" : "#b6d7ff";
   el.textContent = message;
 }
 
-function showInfo(message) {
-  // Reuse error box as an info/status box (keeps UI simple)
-  const el = $("errorBox");
-  el.style.display = "block";
-  el.style.color = "#b6d7ff";
-  el.textContent = message;
-}
-
-function hideBox() {
-  const el = $("errorBox");
+function hideMessage() {
+  const el = ensureErrorBox();
   el.style.display = "none";
   el.textContent = "";
-  el.style.color = "";
 }
 
 function normaliseTopLevel(data) {
   // Supports:
   // A) { "^FTSE": {...}, "^GSPC": {...} }
-  // B) [ { "ticker":"^FTSE", ... }, { "ticker":"^GSPC", ... } ]
+  // B) [ { "ticker":"^FTSE", ... }, ... ]
   if (Array.isArray(data)) {
     return Object.fromEntries(data.map((d) => [d.ticker, d]));
   }
@@ -37,28 +53,28 @@ function normaliseTopLevel(data) {
 }
 
 function toNumberArray(x) {
-  // Accepts list OR dict-of-indexes OR nested container
   if (!x) return [];
   if (Array.isArray(x)) {
-    return x.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+    return x.map(Number).filter((v) => Number.isFinite(v));
   }
   if (typeof x === "object") {
-    // Sometimes series come as {0:...,1:...} or {values:[...]}
     if (Array.isArray(x.values)) {
-      return x.values.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+      return x.values.map(Number).filter((v) => Number.isFinite(v));
     }
-    return Object.values(x).map((v) => Number(v)).filter((v) => Number.isFinite(v));
+    return Object.values(x).map(Number).filter((v) => Number.isFinite(v));
   }
   return [];
 }
 
-function formatNumber(x, dp = 2) {
-  if (x === null || x === undefined || Number.isNaN(Number(x))) return "—";
+function fmt(x, dp = 2) {
+  if (x === null || x === undefined || !Number.isFinite(Number(x))) return "—";
   return Number(x).toFixed(dp);
 }
 
-function buildCards(result) {
-  const cards = $("cards");
+function renderCards(result) {
+  const cards = getEl("cards");
+  if (!cards) return;
+
   cards.innerHTML = "";
 
   const selected = result.selected_model || result.selected_distribution || "—";
@@ -66,20 +82,20 @@ function buildCards(result) {
   const aicNormal = aic.normal ?? aic.gaussian ?? aic.Normal ?? null;
   const aicT = aic.t ?? aic.student_t ?? aic["Student-t"] ?? null;
 
-  const volNums = toNumberArray(result.volatility_series || result.volatility);
-  const n = volNums.length;
-  const meanVol = n ? volNums.reduce((a, b) => a + b, 0) / n : null;
-  const maxVol = n ? Math.max(...volNums) : null;
-  const minVol = n ? Math.min(...volNums) : null;
+  const vol = toNumberArray(result.volatility_series || result.volatility);
+  const n = vol.length;
+  const mean = n ? vol.reduce((a, b) => a + b, 0) / n : null;
+  const max = n ? Math.max(...vol) : null;
+  const min = n ? Math.min(...vol) : null;
 
   const items = [
     ["Selected distribution", selected],
-    ["AIC (Normal)", formatNumber(aicNormal, 2)],
-    ["AIC (Student-t)", formatNumber(aicT, 2)],
+    ["AIC (Normal)", fmt(aicNormal, 2)],
+    ["AIC (Student-t)", fmt(aicT, 2)],
     ["Observations", n ? String(n) : "—"],
-    ["Mean volatility", formatNumber(meanVol, 4)],
-    ["Max volatility", formatNumber(maxVol, 4)],
-    ["Min volatility", formatNumber(minVol, 4)],
+    ["Mean volatility", fmt(mean, 4)],
+    ["Max volatility", fmt(max, 4)],
+    ["Min volatility", fmt(min, 4)],
   ];
 
   for (const [k, v] of items) {
@@ -90,37 +106,42 @@ function buildCards(result) {
   }
 }
 
-function renderChart(result) {
-  const volNums = toNumberArray(result.volatility_series || result.volatility);
+function renderVolChart(result) {
+  const canvas = getEl("volChart");
+  if (!canvas) return;
 
-  if (!volNums.length) {
+  const vol = toNumberArray(result.volatility_series || result.volatility);
+  if (!vol.length) {
     if (chart) {
       chart.destroy();
       chart = null;
     }
-    showError("No volatility data found in summary.json for this index. Check the JSON keys: volatility_series/volatility.");
+    showMessage("No volatility series found in summary.json for this index.", "error");
     return;
   }
 
-  const labels = volNums.map((_, i) => i + 1);
+  // Ensure Chart.js exists
+  if (typeof Chart === "undefined") {
+    showMessage("Chart.js did not load. Check script order in docs/index.html.", "error");
+    return;
+  }
 
-  const ctx = $("volChart").getContext("2d");
+  const labels = vol.map((_, i) => i + 1);
 
+  const ctx = canvas.getContext("2d");
   if (chart) chart.destroy();
 
   chart = new Chart(ctx, {
     type: "line",
     data: {
       labels,
-      datasets: [
-        {
-          label: "Conditional volatility",
-          data: volNums,
-          pointRadius: 0,
-          borderWidth: 1,
-          tension: 0.15,
-        },
-      ],
+      datasets: [{
+        label: "Conditional volatility",
+        data: vol,
+        pointRadius: 0,
+        borderWidth: 1,
+        tension: 0.15,
+      }],
     },
     options: {
       responsive: true,
@@ -134,31 +155,33 @@ function renderChart(result) {
   });
 }
 
-function buildVaRTable(result) {
-  const container = $("varTable");
+function renderVaRTable(result) {
+  const container = getEl("varTable");
+  if (!container) return;
+
   container.innerHTML = "";
 
-  const varRes = result.var_backtest || null;
-  if (!varRes || typeof varRes !== "object") {
-    container.textContent = "VaR results not found in summary.json (expected key: var_backtest).";
+  const vb = result.var_backtest;
+  if (!vb || typeof vb !== "object") {
+    container.textContent = "VaR results not found (expected: var_backtest).";
     return;
   }
 
-  const rows = Object.keys(varRes).map((key) => {
-    const entry = varRes[key] || {};
+  const rows = Object.keys(vb).map((key) => {
+    const entry = vb[key] || {};
     const kt = entry.kupiec_test || {};
 
-    // Convert level labels to something readable
-    const levelLabel =
-      entry.confidence_level ? `${Math.round(entry.confidence_level * 100)}%` : key;
+    const levelLabel = entry.confidence_level
+      ? `${Math.round(entry.confidence_level * 100)}%`
+      : key;
 
     return {
       level: levelLabel,
       exceptions: entry.exceptions ?? "—",
       expected: kt.expected_exceptions ?? "—",
       observedRate: kt.observed_rate ?? "—",
-      kupiecLR: kt.lr_statistic ?? "—",
-      pValue: kt.p_value ?? "—",
+      lr: kt.lr_statistic ?? "—",
+      p: kt.p_value ?? "—",
       result: kt.reject_null === true ? "REJECT" : kt.reject_null === false ? "PASS" : "—",
     };
   });
@@ -180,16 +203,20 @@ function buildVaRTable(result) {
   `;
 
   const tbody = table.querySelector("tbody");
-
   for (const r of rows) {
+    const pVal =
+      typeof r.p === "number"
+        ? (r.p < 0.0001 ? r.p.toExponential(2) : r.p.toFixed(4))
+        : r.p;
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${r.level}</td>
       <td>${r.exceptions}</td>
       <td>${typeof r.expected === "number" ? r.expected.toFixed(1) : r.expected}</td>
       <td>${typeof r.observedRate === "number" ? r.observedRate.toFixed(4) : r.observedRate}</td>
-      <td>${typeof r.kupiecLR === "number" ? r.kupiecLR.toFixed(2) : r.kupiecLR}</td>
-      <td>${typeof r.pValue === "number" ? r.pValue.toExponential(2) : r.pValue}</td>
+      <td>${typeof r.lr === "number" ? r.lr.toFixed(2) : r.lr}</td>
+      <td>${pVal}</td>
       <td>${r.result}</td>
     `;
     tbody.appendChild(tr);
@@ -197,3 +224,44 @@ function buildVaRTable(result) {
 
   container.appendChild(table);
 }
+
+function render(ticker) {
+  hideMessage();
+
+  const byTicker = normaliseTopLevel(rawData);
+  const result = byTicker[ticker];
+
+  if (!result) {
+    showMessage(`No results found for ${ticker} in summary.json.`, "error");
+    return;
+  }
+
+  renderCards(result);
+  renderVolChart(result);
+  renderVaRTable(result);
+
+  const volCount = toNumberArray(result.volatility_series || result.volatility).length;
+  showMessage(`Loaded ${ticker}. Volatility points: ${volCount}.`, "info");
+}
+
+async function init() {
+  try {
+    const resp = await fetch("summary.json", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`Failed to load summary.json: HTTP ${resp.status}`);
+    rawData = await resp.json();
+  } catch (err) {
+    showMessage(`Error loading data: ${err.message}`, "error");
+    return;
+  }
+
+  const select = getEl("indexSelect");
+  if (!select) {
+    showMessage("Missing <select id='indexSelect'> in docs/index.html", "error");
+    return;
+  }
+
+  select.addEventListener("change", () => render(select.value));
+  render(select.value);
+}
+
+document.addEventListener("DOMContentLoaded", init);
