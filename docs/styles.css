@@ -1,18 +1,148 @@
-body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #0b0f14; color: #e6edf3; }
-.container { max-width: 1100px; margin: 0 auto; padding: 24px; }
-h1 { margin: 0 0 16px; font-size: 26px; }
-.controls { margin: 12px 0 18px; display: flex; gap: 12px; align-items: center; }
-select { background: #111826; color: #e6edf3; border: 1px solid #243044; padding: 8px 10px; border-radius: 8px; }
-.panel { background: #0f1622; border: 1px solid #243044; border-radius: 14px; padding: 16px; margin: 14px 0; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0 16px; }
-.card { background: #0f1622; border: 1px solid #243044; border-radius: 14px; padding: 14px; }
-.card .k { color: #9fb0c3; font-size: 12px; margin-bottom: 8px; }
-.card .v { font-size: 18px; font-weight: 600; }
-#volChart { width: 100%; height: 360px; }
-table { width: 100%; border-collapse: collapse; }
-th, td { border-bottom: 1px solid #243044; padding: 10px; text-align: left; font-size: 14px; }
-th { color: #9fb0c3; font-weight: 600; }
-#errorBox { color: #ffb4b4; }
-/* Ensure the chart is visible on GitHub Pages */
-.panel { min-height: 420px; }
-#volChart { display: block; height: 360px !important; width: 100% !important; }
+:root {
+  --bg: #0b0f14;
+  --panel: #0f1622;
+  --border: #243044;
+  --text: #e6edf3;
+  --muted: #9fb0c3;
+  --good: #7ee787;
+  --bad: #ff7b72;
+  --info: #b6d7ff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 22px;
+}
+
+.header { margin-bottom: 14px; }
+.title h1 { margin: 0; font-size: 28px; letter-spacing: 0.2px; }
+.subtitle { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin: 14px 0;
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+label { color: var(--muted); font-size: 14px; }
+
+select {
+  background: #111826;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.status {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #0d1b2a;
+  color: var(--info);
+  font-size: 13px;
+}
+
+.status.error {
+  background: #2a0d12;
+  color: var(--bad);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 12px 0 8px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.card .k { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.card .v { font-size: 18px; font-weight: 650; }
+
+h2 { margin: 0 0 10px; font-size: 18px; }
+
+.chartWrap {
+  width: 100%;
+  height: 360px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #0b1220;
+  overflow: hidden;
+}
+
+#volChart { width: 100%; height: 360px; display: block; }
+
+.chartMeta {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+th, td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px;
+  text-align: left;
+  font-size: 14px;
+}
+
+th { color: var(--muted); font-weight: 600; background: #0d1522; }
+
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+}
+
+.badge.pass { color: var(--good); background: rgba(126, 231, 135, 0.08); }
+.badge.reject { color: var(--bad); background: rgba(255, 123, 114, 0.08); }
+
+.footer {
+  margin-top: 18px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.muted { color: var(--muted); }
+
+@media (max-width: 900px) {
+  .cards { grid-template-columns: 1fr; }
+}

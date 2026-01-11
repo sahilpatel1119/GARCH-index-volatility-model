@@ -5,35 +5,50 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>GARCH Volatility Dashboard</title>
   <link rel="stylesheet" href="styles.css" />
-<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script defer src="app.js"></script>
+  <script defer src="app.js?v=3"></script>
 </head>
 
 <body>
   <div class="container">
-    <h1>GARCH Volatility Dashboard</h1>
+    <header class="header">
+      <div class="title">
+        <h1>GARCH Volatility Dashboard</h1>
+        <p class="subtitle">Static GitHub Pages dashboard (no external JS libraries)</p>
+      </div>
+    </header>
 
-    <div class="controls">
-      <label for="indexSelect">Index</label>
-      <select id="indexSelect">
-        <option value="^FTSE">FTSE 100 (UK)</option>
-        <option value="^GSPC">S&P 500 (USA)</option>
-      </select>
-    </div>
+    <section class="panel">
+      <div class="controls">
+        <label for="indexSelect">Index</label>
+        <select id="indexSelect">
+          <option value="^FTSE">FTSE 100 (UK)</option>
+          <option value="^GSPC">S&amp;P 500 (USA)</option>
+        </select>
+      </div>
+      <div id="statusBox" class="status" style="display:none;"></div>
+    </section>
 
-    <div class="cards" id="cards"></div>
+    <section class="cards" id="cards"></section>
 
-    <div class="panel">
+    <section class="panel">
       <h2>Conditional Volatility</h2>
-      <canvas id="volChart"></canvas>
-    </div>
+      <div class="chartWrap">
+        <svg id="volChart" viewBox="0 0 1000 360" preserveAspectRatio="none" aria-label="Volatility chart"></svg>
+      </div>
+      <div class="chartMeta">
+        <div><span class="muted">Y:</span> Volatility</div>
+        <div><span class="muted">X:</span> Observation</div>
+      </div>
+    </section>
 
-    <div class="panel">
+    <section class="panel">
       <h2>VaR Backtest</h2>
       <div id="varTable"></div>
-    </div>
+    </section>
 
-    <div class="panel" id="errorBox" style="display:none;"></div>
+    <footer class="footer">
+      <span class="muted">Educational / portfolio project • Not financial advice</span>
+    </footer>
   </div>
 </body>
 </html>

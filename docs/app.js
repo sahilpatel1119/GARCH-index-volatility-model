@@ -1,80 +1,62 @@
-/* GARCH Pages Dashboard (CSP-safe, defensive)
-   - Loads docs/summary.json
-   - Renders cards, volatility chart, VaR table (nested kupiec_test)
-*/
+// Zero-dependency GitHub Pages dashboard (no eval, no external libraries)
+// Loads docs/summary.json and renders cards, SVG line chart, and VaR table.
 
-let rawData = null;
-let chart = null;
+function el(id) { return document.getElementById(id); }
 
-function getEl(id) {
-  return document.getElementById(id);
+function setStatus(message, isError = false) {
+  const box = el("statusBox");
+  if (!box) return;
+  box.style.display = "block";
+  box.className = isError ? "status error" : "status";
+  box.textContent = message;
 }
 
-function ensureErrorBox() {
-  let el = getEl("errorBox");
-  if (!el) {
-    // Create a fallback error box so the app never crashes due to missing HTML
-    el = document.createElement("div");
-    el.id = "errorBox";
-    el.style.display = "none";
-    el.style.marginTop = "12px";
-    el.style.padding = "10px";
-    el.style.border = "1px solid #243044";
-    el.style.borderRadius = "10px";
-    el.style.background = "#0f1622";
-    el.style.color = "#ffb4b4";
-    const container = document.body;
-    container.appendChild(el);
-  }
-  return el;
-}
-
-function showMessage(message, kind = "info") {
-  const el = ensureErrorBox();
-  el.style.display = "block";
-  el.style.color = kind === "error" ? "#ffb4b4" : "#b6d7ff";
-  el.textContent = message;
-}
-
-function hideMessage() {
-  const el = ensureErrorBox();
-  el.style.display = "none";
-  el.textContent = "";
+function hideStatus() {
+  const box = el("statusBox");
+  if (!box) return;
+  box.style.display = "none";
+  box.textContent = "";
+  box.className = "status";
 }
 
 function normaliseTopLevel(data) {
-  // Supports:
-  // A) { "^FTSE": {...}, "^GSPC": {...} }
-  // B) [ { "ticker":"^FTSE", ... }, ... ]
+  // supports { "^FTSE": {...}, "^GSPC": {...} } OR [ {ticker:"^FTSE",...}, ... ]
   if (Array.isArray(data)) {
-    return Object.fromEntries(data.map((d) => [d.ticker, d]));
+    const out = {};
+    for (const item of data) {
+      if (item && item.ticker) out[item.ticker] = item;
+    }
+    return out;
   }
-  return data;
+  return data || {};
 }
 
-function toNumberArray(x) {
+function toNumArray(x) {
   if (!x) return [];
-  if (Array.isArray(x)) {
-    return x.map(Number).filter((v) => Number.isFinite(v));
-  }
+  if (Array.isArray(x)) return x.map(Number).filter(Number.isFinite);
   if (typeof x === "object") {
-    if (Array.isArray(x.values)) {
-      return x.values.map(Number).filter((v) => Number.isFinite(v));
-    }
-    return Object.values(x).map(Number).filter((v) => Number.isFinite(v));
+    if (Array.isArray(x.values)) return x.values.map(Number).filter(Number.isFinite);
+    return Object.values(x).map(Number).filter(Number.isFinite);
   }
   return [];
 }
 
 function fmt(x, dp = 2) {
-  if (x === null || x === undefined || !Number.isFinite(Number(x))) return "—";
-  return Number(x).toFixed(dp);
+  const n = Number(x);
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(dp);
+}
+
+function fmtPValue(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return "—";
+  if (n < 0.0001) return n.toExponential(2);
+  return n.toFixed(4);
 }
 
 function renderCards(result) {
-  const cards = getEl("cards");
+  const cards = el("cards");
   if (!cards) return;
-
   cards.innerHTML = "";
 
   const selected = result.selected_model || result.selected_distribution || "—";
@@ -82,7 +64,7 @@ function renderCards(result) {
   const aicNormal = aic.normal ?? aic.gaussian ?? aic.Normal ?? null;
   const aicT = aic.t ?? aic.student_t ?? aic["Student-t"] ?? null;
 
-  const vol = toNumberArray(result.volatility_series || result.volatility);
+  const vol = toNumArray(result.volatility_series || result.volatility);
   const n = vol.length;
   const mean = n ? vol.reduce((a, b) => a + b, 0) / n : null;
   const max = n ? Math.max(...vol) : null;
@@ -106,64 +88,80 @@ function renderCards(result) {
   }
 }
 
-function renderVolChart(result) {
-  const canvas = getEl("volChart");
-  if (!canvas) return;
+function svgClear(svg) {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+}
 
-  const vol = toNumberArray(result.volatility_series || result.volatility);
+function svgLine(svg, x1, y1, x2, y2, stroke, strokeWidth, opacity = 1) {
+  const ln = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  ln.setAttribute("x1", x1);
+  ln.setAttribute("y1", y1);
+  ln.setAttribute("x2", x2);
+  ln.setAttribute("y2", y2);
+  ln.setAttribute("stroke", stroke);
+  ln.setAttribute("stroke-width", strokeWidth);
+  ln.setAttribute("opacity", opacity);
+  svg.appendChild(ln);
+}
+
+function svgPath(svg, d, stroke, strokeWidth) {
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", d);
+  p.setAttribute("fill", "none");
+  p.setAttribute("stroke", stroke);
+  p.setAttribute("stroke-width", strokeWidth);
+  p.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.appendChild(p);
+}
+
+function renderVolatilityChart(result) {
+  const svg = el("volChart");
+  if (!svg) return;
+  svgClear(svg);
+
+  const vol = toNumArray(result.volatility_series || result.volatility);
   if (!vol.length) {
-    if (chart) {
-      chart.destroy();
-      chart = null;
-    }
-    showMessage("No volatility series found in summary.json for this index.", "error");
+    setStatus("No volatility series found for this index in summary.json.", true);
     return;
   }
 
-  // Ensure Chart.js exists
-  if (typeof Chart === "undefined") {
-    showMessage("Chart.js did not load. Check script order in docs/index.html.", "error");
-    return;
+  // Chart area
+  const W = 1000, H = 360;
+  const padL = 48, padR = 12, padT = 12, padB = 28;
+  const w = W - padL - padR;
+  const h = H - padT - padB;
+
+  const minV = Math.min(...vol);
+  const maxV = Math.max(...vol);
+  const span = (maxV - minV) || 1;
+
+  const x = (i) => padL + (i / (vol.length - 1)) * w;
+  const y = (v) => padT + (1 - (v - minV) / span) * h;
+
+  // Grid lines
+  for (let i = 0; i <= 4; i++) {
+    const yy = padT + (i / 4) * h;
+    svgLine(svg, padL, yy, padL + w, yy, "#243044", 1, 0.6);
   }
+  svgLine(svg, padL, padT, padL, padT + h, "#243044", 1, 0.8);
+  svgLine(svg, padL, padT + h, padL + w, padT + h, "#243044", 1, 0.8);
 
-  const labels = vol.map((_, i) => i + 1);
-
-  const ctx = canvas.getContext("2d");
-  if (chart) chart.destroy();
-
-  chart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [{
-        label: "Conditional volatility",
-        data: vol,
-        pointRadius: 0,
-        borderWidth: 1,
-        tension: 0.15,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: true } },
-      scales: {
-        x: { title: { display: true, text: "Observation" } },
-        y: { title: { display: true, text: "Volatility" } },
-      },
-    },
-  });
+  // Build path
+  let d = `M ${x(0)} ${y(vol[0])}`;
+  for (let i = 1; i < vol.length; i++) {
+    d += ` L ${x(i)} ${y(vol[i])}`;
+  }
+  svgPath(svg, d, "#7fb3ff", 2);
 }
 
 function renderVaRTable(result) {
-  const container = getEl("varTable");
+  const container = el("varTable");
   if (!container) return;
-
   container.innerHTML = "";
 
   const vb = result.var_backtest;
   if (!vb || typeof vb !== "object") {
-    container.textContent = "VaR results not found (expected: var_backtest).";
+    container.textContent = "VaR results not found (expected key: var_backtest).";
     return;
   }
 
@@ -171,18 +169,16 @@ function renderVaRTable(result) {
     const entry = vb[key] || {};
     const kt = entry.kupiec_test || {};
 
-    const levelLabel = entry.confidence_level
-      ? `${Math.round(entry.confidence_level * 100)}%`
-      : key;
+    const level = entry.confidence_level ? `${Math.round(entry.confidence_level * 100)}%` : key;
 
     return {
-      level: levelLabel,
+      level,
       exceptions: entry.exceptions ?? "—",
       expected: kt.expected_exceptions ?? "—",
       observedRate: kt.observed_rate ?? "—",
       lr: kt.lr_statistic ?? "—",
       p: kt.p_value ?? "—",
-      result: kt.reject_null === true ? "REJECT" : kt.reject_null === false ? "PASS" : "—",
+      reject: kt.reject_null,
     };
   });
 
@@ -203,21 +199,24 @@ function renderVaRTable(result) {
   `;
 
   const tbody = table.querySelector("tbody");
+
   for (const r of rows) {
-    const pVal =
-      typeof r.p === "number"
-        ? (r.p < 0.0001 ? r.p.toExponential(2) : r.p.toFixed(4))
-        : r.p;
+    const badge =
+      r.reject === true
+        ? `<span class="badge reject">REJECT</span>`
+        : r.reject === false
+          ? `<span class="badge pass">PASS</span>`
+          : "—";
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${r.level}</td>
       <td>${r.exceptions}</td>
-      <td>${typeof r.expected === "number" ? r.expected.toFixed(1) : r.expected}</td>
-      <td>${typeof r.observedRate === "number" ? r.observedRate.toFixed(4) : r.observedRate}</td>
-      <td>${typeof r.lr === "number" ? r.lr.toFixed(2) : r.lr}</td>
-      <td>${pVal}</td>
-      <td>${r.result}</td>
+      <td>${typeof r.expected === "number" ? Number(r.expected).toFixed(1) : r.expected}</td>
+      <td>${typeof r.observedRate === "number" ? Number(r.observedRate).toFixed(4) : r.observedRate}</td>
+      <td>${typeof r.lr === "number" ? Number(r.lr).toFixed(2) : r.lr}</td>
+      <td>${fmtPValue(r.p)}</td>
+      <td>${badge}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -225,38 +224,43 @@ function renderVaRTable(result) {
   container.appendChild(table);
 }
 
+async function loadSummary() {
+  const resp = await fetch("summary.json", { cache: "no-store" });
+  if (!resp.ok) throw new Error(`Failed to load summary.json (HTTP ${resp.status})`);
+  return resp.json();
+}
+
+let byTicker = {};
+
 function render(ticker) {
-  hideMessage();
+  hideStatus();
 
-  const byTicker = normaliseTopLevel(rawData);
   const result = byTicker[ticker];
-
   if (!result) {
-    showMessage(`No results found for ${ticker} in summary.json.`, "error");
+    setStatus(`No results found for ${ticker} in summary.json.`, true);
     return;
   }
 
   renderCards(result);
-  renderVolChart(result);
+  renderVolatilityChart(result);
   renderVaRTable(result);
 
-  const volCount = toNumberArray(result.volatility_series || result.volatility).length;
-  showMessage(`Loaded ${ticker}. Volatility points: ${volCount}.`, "info");
+  const points = toNumArray(result.volatility_series || result.volatility).length;
+  setStatus(`Loaded ${ticker}. Volatility points: ${points}.`);
 }
 
 async function init() {
   try {
-    const resp = await fetch("summary.json", { cache: "no-store" });
-    if (!resp.ok) throw new Error(`Failed to load summary.json: HTTP ${resp.status}`);
-    rawData = await resp.json();
+    const data = await loadSummary();
+    byTicker = normaliseTopLevel(data);
   } catch (err) {
-    showMessage(`Error loading data: ${err.message}`, "error");
+    setStatus(`Error loading data: ${err.message}`, true);
     return;
   }
 
-  const select = getEl("indexSelect");
+  const select = el("indexSelect");
   if (!select) {
-    showMessage("Missing <select id='indexSelect'> in docs/index.html", "error");
+    setStatus("Missing indexSelect element in index.html", true);
     return;
   }
 
